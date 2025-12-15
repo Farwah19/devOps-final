@@ -1,0 +1,12 @@
+CREATE DATABASE IF NOT EXISTS devops_db;
+USE devops_db;
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    content TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO messages (content) VALUES 
+('Welcome to the DevOps CI/CD Pipeline Demo!'),
+('This app is deployed using Jenkins, Docker, and Kubernetes');
