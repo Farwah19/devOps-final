@@ -1,0 +1,5 @@
+Flask==2.3.0
+mysql-connector-python==8.0.33
+Werkzeug==2.3.0
+requests==2.31.0
+prometheus-client==0.17.1
