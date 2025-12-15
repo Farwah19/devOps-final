@@ -6,9 +6,13 @@ pipeline {
         DOCKERHUB_USERNAME = 'zumarr'
         IMAGE_NAME = 'devops-flask-app'
         IMAGE_TAG = "${BUILD_NUMBER}"
+
+        // ✅ FIX: Jenkins Kubernetes access
+        KUBECONFIG = "/var/lib/jenkins/.kube/config"
     }
     
     stages {
+
         stage('Code Fetch') {
             steps {
                 script {
@@ -31,7 +35,9 @@ pipeline {
                         docker tag ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG} ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest
                     """
                     echo 'Docker image built successfully!'
+
                     sh 'echo $DOCKERHUB_CREDENTIALS_PSW | docker login -u $DOCKERHUB_CREDENTIALS_USR --password-stdin'
+
                     sh """
                         docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}
                         docker push ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:latest
@@ -45,45 +51,41 @@ pipeline {
             steps {
                 script {
                     echo '========== Stage 3: Deploying to Kubernetes =========='
-                    
+
+                    // Verify Kubernetes access
+                    sh 'kubectl get nodes'
+
                     // Create monitoring namespace
                     sh '''
                         kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f - || true
                     '''
-                    
-                    // Apply MySQL ConfigMap
+
+                    // Apply MySQL resources
                     sh 'kubectl apply -f kubernetes/mysql-configmap.yaml'
-                    
-                    // Apply PVC
                     sh 'kubectl apply -f kubernetes/pvc.yaml'
-                    
-                    // Deploy MySQL
                     sh 'kubectl apply -f kubernetes/mysql-deployment.yaml'
                     sh 'kubectl apply -f kubernetes/mysql-service.yaml'
-                    
-                    // Wait for MySQL
+
                     echo 'Waiting for MySQL to be ready...'
                     sh 'kubectl wait --for=condition=ready pod -l app=mysql --timeout=300s || true'
                     sleep(time: 30, unit: 'SECONDS')
-                    
-                    // Update deployment with new image
+
+                    // Update Flask image
                     sh """
                         sed -i 's|image:.*|image: ${DOCKERHUB_USERNAME}/${IMAGE_NAME}:${IMAGE_TAG}|g' kubernetes/deployment.yaml
                     """
-                    
-                    // Deploy Flask application
+
+                    // Deploy Flask app
                     sh 'kubectl apply -f kubernetes/deployment.yaml'
                     sh 'kubectl apply -f kubernetes/service.yaml'
-                    
-                    // Wait for deployment
-                    echo 'Waiting for application deployment to be ready...'
+
+                    echo 'Waiting for Flask deployment...'
                     sh 'kubectl wait --for=condition=available deployment/flask-app --timeout=300s || true'
-                    
-                    // Get deployment status
+
                     sh 'kubectl get deployments'
                     sh 'kubectl get pods'
                     sh 'kubectl get services'
-                    
+
                     echo 'Application deployed to Kubernetes successfully!'
                 }
             }
@@ -93,23 +95,17 @@ pipeline {
             steps {
                 script {
                     echo '========== Stage 4: Setting up Monitoring =========='
-                    
-                    // Deploy Prometheus
+
                     sh 'kubectl apply -f monitoring/prometheus-config.yaml'
-                    
-                    // Deploy Grafana
                     sh 'kubectl apply -f monitoring/grafana-config.yaml'
-                    
-                    // Wait for Prometheus and Grafana
-                    echo 'Waiting for Prometheus to be ready...'
+
+                    echo 'Waiting for Prometheus...'
                     sh 'kubectl wait --for=condition=available deployment/prometheus -n monitoring --timeout=300s || true'
-                    
-                    echo 'Waiting for Grafana to be ready...'
+
+                    echo 'Waiting for Grafana...'
                     sh 'kubectl wait --for=condition=available deployment/grafana -n monitoring --timeout=300s || true'
-                    
-                    // Get monitoring status
+
                     sh 'kubectl get all -n monitoring'
-                    
                     echo 'Monitoring setup completed successfully!'
                 }
             }
@@ -119,40 +115,30 @@ pipeline {
             steps {
                 script {
                     echo '========== Verifying Deployment =========='
-                    
+
                     sh '''
-                        echo "=== Pods ==="
                         kubectl get pods -o wide
-                        
-                        echo "=== Services ==="
                         kubectl get services
-                        
-                        echo "=== Deployments ==="
                         kubectl get deployments
-                        
-                        echo "=== PVCs ==="
                         kubectl get pvc
-                        
-                        echo "=== Monitoring Namespace ==="
                         kubectl get all -n monitoring
                     '''
-                    
-                    // Get Minikube IP
+
                     def minikubeIp = sh(script: 'minikube ip', returnStdout: true).trim()
-                    
+
                     echo """
-                    ============================================
-                    DEPLOYMENT SUCCESSFUL!
-                    ============================================
-                    Application URL: http://${minikubeIp}:30080
-                    Prometheus URL: http://${minikubeIp}:30090
-                    Grafana URL: http://${minikubeIp}:30030
-                    
-                    Grafana Credentials:
-                    Username: admin
-                    Password: admin123
-                    ============================================
-                    """
+                            ================================================
+                            DEPLOYMENT SUCCESSFUL
+                            ================================================
+                            Application URL : http://${minikubeIp}:30080
+                            Prometheus URL  : http://${minikubeIp}:30090
+                            Grafana URL     : http://${minikubeIp}:30030
+
+                            Grafana Login:
+                            Username: admin
+                            Password: admin123
+                            ================================================
+                        """
                 }
             }
         }
